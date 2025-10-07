@@ -860,7 +860,14 @@ class WanVAE_(nn.Module):
         self._enc_feat_map = [None] * self._enc_conv_num
 
 
-def _video_vae(pretrained_path=None, z_dim=16, dim=160, device="cpu", **kwargs):
+def _video_vae(
+    vae_cls: type[nn.Module] = WanVAE_,
+    pretrained_path=None, 
+    z_dim=16, 
+    dim=160,
+    device="cpu", 
+    **kwargs
+):
     # params
     cfg = dict(
         dim=dim,
@@ -875,7 +882,7 @@ def _video_vae(pretrained_path=None, z_dim=16, dim=160, device="cpu", **kwargs):
 
     # init model
     with torch.device("meta"):
-        model = WanVAE_(**cfg)
+        model = vae_cls(**cfg)
 
     # load checkpoint
     logging.info(f"loading {pretrained_path}")
@@ -889,6 +896,7 @@ class Wan2_2_VAE:
 
     def __init__(
         self,
+        vae_cls: type[nn.Module] = WanVAE_,
         z_dim=48,
         c_dim=160,
         vae_pth=None,
@@ -1014,6 +1022,7 @@ class Wan2_2_VAE:
         # init model
         self.model = (
             _video_vae(
+                vae_cls=vae_cls,
                 pretrained_path=vae_pth,
                 z_dim=z_dim,
                 dim=c_dim,

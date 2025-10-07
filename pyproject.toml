@@ -1,0 +1,41 @@
+[project]
+dependencies = [
+    "opencv-python>=4.9.0.80",
+    "diffusers>=0.31.0",
+    "transformers>=4.49.0",
+    "tokenizers>=0.20.3",
+    "accelerate>=1.1.1",
+    "tqdm",
+    "imageio[ffmpeg]",
+    "easydict",
+    "ftfy",
+    "dashscope",
+    "imageio-ffmpeg",
+    "numpy>=1.23.5",
+    "scipy",
+    "moviepy==1.0.3",
+    "librosa",
+    "omegaconf",
+    "pandas",
+    "open-clip-torch",
+    "protobuf",
+    "sentencepiece",
+    "huggingface_hub",
+    "einops",
+]
+
+
+name = "ovi"
+version = "0.1.0"  # Remove any existing version parameter.
+requires-python = ">=3.12"
+authors = [
+    {name = "D1-3105", email = "oleg.konin@runware.ai"},
+]
+
+[build-system]
+
+requires = ["setuptools>=64"]
+# build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+"ovi" = ["configs/**/**"]

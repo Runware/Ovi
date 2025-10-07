@@ -1,12 +1,7 @@
 from typing import Literal, Optional
-
-import open_clip
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
-from open_clip import create_model_from_pretrained
-from torchvision.transforms import Normalize
 
 from .ext.autoencoder import AutoEncoderModule
 from .ext.autoencoder.distributions import DiagonalGaussianDistribution
@@ -52,9 +47,6 @@ class FeaturesUtils(nn.Module):
 
         self.decode = torch.compile(self.decode)
         self.vocode = torch.compile(self.vocode)
-
-    def train(self, mode: bool) -> None:
-        return super().train(False)
 
     @torch.inference_mode()
     def encode_audio(self, x) -> DiagonalGaussianDistribution:

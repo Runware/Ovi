@@ -1,98 +1,53 @@
-import os
-import sys
-import uuid
-import cv2
-import glob
 import torch
 import logging
-from textwrap import indent
-import torch.nn as nn
-from diffusers import FluxPipeline
 from tqdm import tqdm
-from ovi.distributed_comms.parallel_states import get_sequence_parallel_state, nccl_info
-from ovi.utils.model_loading_utils import init_fusion_score_model_ovi, init_text_model, init_mmaudio_vae, init_wan_vae_2_2, load_fusion_checkpoint
+from ovi.modules.fusion import FusionModel
+from ovi.modules.mmaudio.features_utils import FeaturesUtils
+from ovi.modules.t5 import T5EncoderModel
+from ovi.modules.vae2_2 import Wan2_2_VAE
 from ovi.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from diffusers import FlowMatchEulerDiscreteScheduler
 from ovi.utils.fm_solvers import (FlowDPMSolverMultistepScheduler,
                                get_sampling_sigmas, retrieve_timesteps)
 import traceback
 from omegaconf import OmegaConf
-from ovi.utils.processing_utils import clean_text, preprocess_image_tensor, snap_hw_to_multiple_of_32, scale_hw_to_area_divisible
+from ovi.utils.processing_utils import preprocess_image_tensor, snap_hw_to_multiple_of_32
+
 
 DEFAULT_CONFIG = OmegaConf.load('ovi/configs/inference/inference_fusion.yaml')
 
+
 class OviFusionEngine:
-    def __init__(self, config=DEFAULT_CONFIG, device=0, target_dtype=torch.bfloat16):
+    def __init__(
+        self, 
+        backbone_model: FusionModel,
+        vae_model_video: Wan2_2_VAE,
+        vae_model_audio: FeaturesUtils,
+        t5: T5EncoderModel,
+        config=DEFAULT_CONFIG,
+        device=0, 
+        target_dtype=torch.bfloat16,
+    ):
         # Load fusion model
         self.device = device
         self.target_dtype = target_dtype
-        meta_init = True
-        self.cpu_offload = config.get("cpu_offload", False) or config.get("mode") == "t2i2v"
+        self.cpu_offload = config.get("cpu_offload", False)
         if self.cpu_offload:
             logging.info("CPU offloading is enabled. Initializing all models aside from VAEs on CPU")
-
-        model, video_config, audio_config = init_fusion_score_model_ovi(rank=device, meta_init=meta_init)
-
-        fp8 = config.get("fp8", False)
-        if fp8:
-            assert not config.get("mode") == "t2i2v", "Image generation with FluxPipeline is not supported with fp8 quantization. This is because if you are unable to run the bf16 model, you likely cannot run image gen model"
-
-        if not meta_init:
-            if not fp8:
-                model = model.to(dtype=target_dtype)
-            model = (
-                model.to(device=device if not self.cpu_offload else "cpu")
-                .eval()
-            )
-
         # Load VAEs
-        vae_model_video = init_wan_vae_2_2(config.ckpt_dir, rank=device)
-        vae_model_video.model.requires_grad_(False).eval()
-        vae_model_video.model = vae_model_video.model.bfloat16()
         self.vae_model_video = vae_model_video
-
-        vae_model_audio = init_mmaudio_vae(config.ckpt_dir, rank=device)
-        vae_model_audio.requires_grad_(False).eval()
-        self.vae_model_audio = vae_model_audio.bfloat16()
+        self.vae_model_audio = vae_model_audio
 
         # Load T5 text model
-        self.text_model = init_text_model(config.ckpt_dir, rank=device, cpu_offload=self.cpu_offload)
+        self.text_model = t5
         if config.get("shard_text_model", False):
             raise NotImplementedError("Sharding text model is not implemented yet.")
         if self.cpu_offload:
             self.offload_to_cpu(self.text_model.model)
-
-        # Find fusion ckpt in the same dir used by other components
-        checkpoint_path = os.path.join(
-            config.ckpt_dir,
-            "Ovi",
-            "model.safetensors" if not fp8 else "model_fp8_e4m3fn.safetensors",
-        )
-
-        if not os.path.exists(checkpoint_path):
-            raise RuntimeError(f"No fusion checkpoint found in {config.ckpt_dir}")
-
-
-        load_fusion_checkpoint(model, checkpoint_path=checkpoint_path, from_meta=meta_init)
-
-        if meta_init:
-            if not fp8:
-                model = model.to(dtype=target_dtype)
-            model = model.to(device=device if not self.cpu_offload else "cpu").eval()
-            model.set_rope_params()
-        self.model = model
-
-        ## Load t2i as part of pipeline
-        self.image_model = None
-        
-        if config.get("mode") == "t2i2v":
-            logging.info(f"Loading Flux Krea for first frame generation...")
-            self.image_model = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-Krea-dev", torch_dtype=torch.bfloat16)
-            self.image_model.enable_model_cpu_offload(gpu_id=self.device) #save some VRAM by offloading the model to CPU. Remove this if you have enough GPU VRAM
-
+        self.model = backbone_model
         # Fixed attributes, non-configurable
-        self.audio_latent_channel = audio_config.get("in_dim")
-        self.video_latent_channel = video_config.get("in_dim")
+        self.audio_latent_channel = backbone_model.audio_model.in_dim
+        self.video_latent_channel = backbone_model.video_model.in_dim
         self.audio_latent_length = 157
         self.video_latent_length = 31
 
@@ -101,7 +56,7 @@ class OviFusionEngine:
     @torch.inference_mode()
     def generate(self,
                     text_prompt, 
-                    image_path=None,
+                    image=None,
                     video_frame_height_width=None,
                     seed=100,
                     solver_name="unipc",
@@ -116,7 +71,7 @@ class OviFusionEngine:
 
         params = {
             "Text Prompt": text_prompt,
-            "Image Path": image_path if image_path else "None (T2V mode)",
+            "Image Path": image if image else "None (T2V mode)",
             "Frame Height Width": video_frame_height_width,
             "Seed": seed,
             "Solver": solver_name,
@@ -147,33 +102,20 @@ class OviFusionEngine:
                 shift=shift
             )
 
-            is_t2v = image_path is None
+            is_t2v = image is None
             is_i2v = not is_t2v
 
             first_frame = None
             image = None
-            if is_i2v and not self.image_model:
+            if is_i2v:
                 # Load first frame from path
-                first_frame = preprocess_image_tensor(image_path, self.device, self.target_dtype)
+                first_frame = preprocess_image_tensor(image, self.device, self.target_dtype)
             else:   
                 assert video_frame_height_width is not None, f"If mode=t2v or t2i2v, video_frame_height_width must be provided."
                 video_h, video_w = video_frame_height_width
                 video_h, video_w = snap_hw_to_multiple_of_32(video_h, video_w, area = 720 * 720)
                 video_latent_h, video_latent_w = video_h // 16, video_w // 16
-                if self.image_model is not None:
-                    # this already means t2v mode with image model
-                    image_h, image_w = scale_hw_to_area_divisible(video_h, video_w, area = 1024 * 1024)
-                    image = self.image_model(
-                        clean_text(text_prompt),
-                        height=image_h,
-                        width=image_w,
-                        guidance_scale=4.5,
-                        generator=torch.Generator().manual_seed(seed)
-                    ).images[0]
-                    first_frame = preprocess_image_tensor(image, self.device, self.target_dtype)
-                    is_i2v = True
-                else:
-                    print(f"Pure T2V mode: calculated video latent size: {video_latent_h} x {video_latent_w}")
+                print(f"Pure T2V mode: calculated video latent size: {video_latent_h} x {video_latent_w}")
 
             
             if self.cpu_offload:
