@@ -860,7 +860,14 @@ class WanVAE_(nn.Module):
         self._enc_feat_map = [None] * self._enc_conv_num
 
 
-def _video_vae(pretrained_path=None, z_dim=16, dim=160, device="cpu", **kwargs):
+def _video_vae(
+    vae_cls: type[nn.Module] = WanVAE_,
+    pretrained_path=None, 
+    z_dim=16, 
+    dim=160,
+    device="cpu", 
+    **kwargs
+):
     # params
     cfg = dict(
         dim=dim,
@@ -875,7 +882,7 @@ def _video_vae(pretrained_path=None, z_dim=16, dim=160, device="cpu", **kwargs):
 
     # init model
     with torch.device("meta"):
-        model = WanVAE_(**cfg)
+        model = vae_cls(**cfg)
 
     # load checkpoint
     logging.info(f"loading {pretrained_path}")
@@ -889,11 +896,7 @@ class Wan2_2_VAE:
 
     def __init__(
         self,
-        z_dim=48,
-        c_dim=160,
-        vae_pth=None,
-        dim_mult=[1, 2, 4, 4],
-        temperal_downsample=[False, True, True],
+        vae_model: type[nn.Module | WanVAE_],
         dtype=torch.float,
         device="cuda",
     ):
@@ -1012,14 +1015,7 @@ class Wan2_2_VAE:
         self.scale = [mean, 1.0 / std]
 
         # init model
-        self.model = (
-            _video_vae(
-                pretrained_path=vae_pth,
-                z_dim=z_dim,
-                dim=c_dim,
-                dim_mult=dim_mult,
-                temperal_downsample=temperal_downsample,
-            ).eval().requires_grad_(False).to(device))
+        self.model = vae_model
 
     def encode(self, videos):
         try:
@@ -1055,8 +1051,10 @@ class Wan2_2_VAE:
             if not isinstance(zs, torch.Tensor):
                 raise TypeError("zs should be a torch.Tensor")
             with amp.autocast('cuda', dtype=self.dtype):
-                return self.model.decode(zs, self.scale).float().clamp_(-1,
-                                                                 1)
+                decoded = self.model.decode(zs, self.scale)
+                if hasattr(decoded, "sample"):
+                    decoded = decoded.sample
+                return decoded.float().clamp_(-1, 1)
 
         except TypeError as e:
             logging.info(e)
@@ -1067,8 +1065,11 @@ class Wan2_2_VAE:
             if not isinstance(video, torch.Tensor):
                 raise TypeError("video should be a torch.Tensor")
             with amp.autocast('cuda', dtype=self.dtype):
-                
-                return self.model.encode(video, self.scale).float()
+
+                res = self.model.encode(video, self.scale)
+                if hasattr(res, "latent_dist"):
+                    return res.latent_dist.mode().float()
+                return res.float()
 
         except TypeError as e:
             logging.info(e)

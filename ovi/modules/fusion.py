@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from ovi.modules.model import WanLayerNorm, WanModel, WanRMSNorm, gradient_checkpointing, rope_apply
 from ovi.modules.attention import flash_attention
-from ovi.distributed_comms.communications import all_gather, all_to_all_4D
+from ovi.distributed_comms.communications import all_to_all_4D
 from ovi.distributed_comms.parallel_states import nccl_info, get_sequence_parallel_state
 
 class FusionModel(nn.Module):
@@ -291,9 +291,7 @@ class FusionModel(nn.Module):
                 continue
             vid_block = self.video_model.blocks[i]
             audio_block = self.audio_model.blocks[i]
-            vid, audio = gradient_checkpointing(
-                    enabled=(self.training and self.gradient_checkpointing),
-                    module=self.single_fusion_block_forward,
+            vid, audio = self.single_fusion_block_forward(
                     vid_block=vid_block,
                     audio_block=audio_block,
                     vid=vid,

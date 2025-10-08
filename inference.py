@@ -96,7 +96,7 @@ def main(config, args):
     require_sample_padding = False
     
     if total_files == 0:
-        logging.error(f"ERROR: No evaluation files found")
+        logging.error("ERROR: No evaluation files found")
         this_rank_eval_data = []
     else:
         # Pad to match number of SP groups

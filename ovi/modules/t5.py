@@ -2,6 +2,7 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import logging
 import math
+from typing import Callable
 
 import torch
 import torch.nn as nn
@@ -473,36 +474,22 @@ class T5EncoderModel:
 
     def __init__(
         self,
-        text_len,
+        umt_encoder,
+        tokenizer: Callable,
         dtype=torch.bfloat16,
         device=torch.cuda.current_device(),
-        checkpoint_path=None,
-        tokenizer_path=None,
         shard_fn=None,
         cpu_offload=False,
     ):
-        self.text_len = text_len
         self.dtype = dtype
         self.device = device
-        self.checkpoint_path = checkpoint_path
-        self.tokenizer_path = tokenizer_path
-
-        # init model
-        model = umt5_xxl(
-            encoder_only=True,
-            return_tokenizer=False,
-            dtype=dtype,
-            device=device if not cpu_offload else "cpu").eval().requires_grad_(False)
-        logging.info(f'loading {checkpoint_path}')
-        model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
-        self.model = model
+        self.model = umt_encoder
         if shard_fn is not None:
             self.model = shard_fn(self.model, sync_module_states=False)
         elif not cpu_offload:
             self.model.to(self.device)
         # init tokenizer
-        self.tokenizer = HuggingfaceTokenizer(
-            name=tokenizer_path, seq_len=text_len, clean='whitespace')
+        self.tokenizer = tokenizer
 
     def __call__(self, texts, device):
         ids, mask = self.tokenizer(
@@ -511,4 +498,6 @@ class T5EncoderModel:
         mask = mask.to(device)
         seq_lens = mask.gt(0).sum(dim=1).long()
         context = self.model(ids, mask)
+        if hasattr(context, 'last_hidden_state'):
+            context = context.last_hidden_state
         return [u[:v] for u, v in zip(context, seq_lens)]

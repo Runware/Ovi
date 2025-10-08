@@ -7,6 +7,9 @@ from ovi.modules.fusion import FusionModel
 from ovi.modules.t5 import T5EncoderModel
 from ovi.modules.vae2_2 import Wan2_2_VAE
 from ovi.modules.mmaudio.features_utils import FeaturesUtils
+
+from pathlib import Path
+path = Path(__file__).parent.parent
     
 def init_wan_vae_2_2(ckpt_dir, rank=0):
     vae_config = {}
@@ -22,8 +25,8 @@ def init_mmaudio_vae(ckpt_dir, rank=0):
     vae_config['mode'] = '16k'
     vae_config['need_vae_encoder'] = True
 
-    tod_vae_ckpt = os.path.join(ckpt_dir, "MMAudio/ext_weights/v1-16.pth")
-    bigvgan_vocoder_ckpt = os.path.join(ckpt_dir, "MMAudio/ext_weights/best_netG.pt")
+    tod_vae_ckpt = os.path.join(ckpt_dir, "ext_weights/v1-16.pth")
+    bigvgan_vocoder_ckpt = os.path.join(ckpt_dir, "ext_weights/best_netG.pt")
 
     vae_config['tod_vae_ckpt'] = tod_vae_ckpt
     vae_config['bigvgan_vocoder_ckpt'] = bigvgan_vocoder_ckpt
@@ -33,8 +36,8 @@ def init_mmaudio_vae(ckpt_dir, rank=0):
     return vae
 
 def init_fusion_score_model_ovi(rank: int = 0, meta_init=False):
-    video_config = "ovi/configs/model/dit/video.json"
-    audio_config = "ovi/configs/model/dit/audio.json"
+    video_config = path / "configs/model/dit/video.json"
+    audio_config = path / "configs/model/dit/audio.json"
     assert os.path.exists(video_config), f"{video_config} does not exist"
     assert os.path.exists(audio_config), f"{audio_config} does not exist"
 
