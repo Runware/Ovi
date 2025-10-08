@@ -19,7 +19,11 @@ import traceback
 from omegaconf import OmegaConf
 from ovi.utils.processing_utils import clean_text, preprocess_image_tensor, snap_hw_to_multiple_of_32, scale_hw_to_area_divisible
 
-DEFAULT_CONFIG = OmegaConf.load('ovi/configs/inference/inference_fusion.yaml')
+from importlib.resources import files
+
+
+DEFAULT_CONFIG = OmegaConf.load(str(files('ovi').joinpath('configs/inference/inference_fusion.yaml')))
+
 
 class OviFusionEngine:
     def __init__(self, config=DEFAULT_CONFIG, device=0, target_dtype=torch.bfloat16):
@@ -84,7 +88,7 @@ class OviFusionEngine:
 
         ## Load t2i as part of pipeline
         self.image_model = None
-        
+
         if config.get("mode") == "t2i2v":
             logging.info(f"Loading Flux Krea for first frame generation...")
             self.image_model = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-Krea-dev", torch_dtype=torch.bfloat16)
@@ -100,7 +104,7 @@ class OviFusionEngine:
 
     @torch.inference_mode()
     def generate(self,
-                    text_prompt, 
+                    text_prompt,
                     image_path=None,
                     video_frame_height_width=None,
                     seed=100,
@@ -155,7 +159,7 @@ class OviFusionEngine:
             if is_i2v and not self.image_model:
                 # Load first frame from path
                 first_frame = preprocess_image_tensor(image_path, self.device, self.target_dtype)
-            else:   
+            else:
                 assert video_frame_height_width is not None, f"If mode=t2v or t2i2v, video_frame_height_width must be provided."
                 video_h, video_w = video_frame_height_width
                 video_h, video_w = snap_hw_to_multiple_of_32(video_h, video_w, area = 720 * 720)
@@ -175,7 +179,7 @@ class OviFusionEngine:
                 else:
                     print(f"Pure T2V mode: calculated video latent size: {video_latent_h} x {video_latent_w}")
 
-            
+
             if self.cpu_offload:
                 self.text_model.model = self.text_model.model.to(self.device)
             text_embeddings = self.text_model([text_prompt, video_negative_prompt, audio_negative_prompt], self.text_model.device)
@@ -186,7 +190,7 @@ class OviFusionEngine:
 
             # Split embeddings
             text_embeddings_audio_pos = text_embeddings[0]
-            text_embeddings_video_pos = text_embeddings[0] 
+            text_embeddings_video_pos = text_embeddings[0]
 
             text_embeddings_video_neg = text_embeddings[1]
             text_embeddings_audio_neg = text_embeddings[2]
@@ -197,7 +201,7 @@ class OviFusionEngine:
                         self.device
                     )
                 with torch.no_grad():
-                    latents_images = self.vae_model_video.wrapped_encode(first_frame[:, :, None]).to(self.target_dtype).squeeze(0) # c 1 h w 
+                    latents_images = self.vae_model_video.wrapped_encode(first_frame[:, :, None]).to(self.target_dtype).squeeze(0) # c 1 h w
                 latents_images = latents_images.to(self.target_dtype)
                 video_latent_h, video_latent_w = latents_images.shape[2], latents_images.shape[3]
                 if self.cpu_offload:
@@ -205,12 +209,12 @@ class OviFusionEngine:
 
             video_noise = torch.randn((self.video_latent_channel, self.video_latent_length, video_latent_h, video_latent_w), device=self.device, dtype=self.target_dtype, generator=torch.Generator(device=self.device).manual_seed(seed))  # c, f, h, w
             audio_noise = torch.randn((self.audio_latent_length, self.audio_latent_channel), device=self.device, dtype=self.target_dtype, generator=torch.Generator(device=self.device).manual_seed(seed))  # 1, l c -> l, c
-            
+
             # Calculate sequence lengths from actual latents
             max_seq_len_audio = audio_noise.shape[0]  # L dimension from latents_audios shape [1, L, D]
             _patch_size_h, _patch_size_w = self.model.video_model.patch_size[1], self.model.video_model.patch_size[2]
             max_seq_len_video = video_noise.shape[1] * video_noise.shape[2] * video_noise.shape[3] // (_patch_size_h*_patch_size_w) # f * h * w from [1, c, f, h, w]
-            
+
             # Sampling loop
             if self.cpu_offload:
                 self.offload_to_cpu(self.vae_model_video.model)
@@ -238,8 +242,8 @@ class OviFusionEngine:
                         t=timestep_input,
                         **pos_forward_args
                     )
-                    
-                    # Negative (unconditional) forward pass  
+
+                    # Negative (unconditional) forward pass
                     neg_forward_args = {
                         'audio_context': [text_embeddings_audio_neg],
                         'vid_context': [text_embeddings_video_neg],
@@ -248,7 +252,7 @@ class OviFusionEngine:
                         'first_frame_is_clean': is_i2v,
                         'slg_layer': slg_layer
                     }
-                    
+
                     pred_vid_neg, pred_audio_neg = self.model(
                         vid=[video_noise],
                         audio=[audio_noise],
@@ -283,8 +287,8 @@ class OviFusionEngine:
                 audio_latents_for_vae = audio_noise.unsqueeze(0).transpose(1, 2)  # 1, c, l
                 generated_audio = self.vae_model_audio.wrapped_decode(audio_latents_for_vae)
                 generated_audio = generated_audio.squeeze().cpu().float().numpy()
-                
-                # Decode video  
+
+                # Decode video
                 video_latents_for_vae = video_noise.unsqueeze(0)  # 1, c, f, h, w
                 generated_video = self.vae_model_video.wrapped_decode(video_latents_for_vae)
                 generated_video = generated_video.squeeze(0).cpu().float().numpy()  # c, f, h, w
@@ -297,7 +301,7 @@ class OviFusionEngine:
         except Exception as e:
             logging.error(traceback.format_exc())
             return None
-            
+
     def offload_to_cpu(self, model):
         model = model.cpu()
         torch.cuda.synchronize()
@@ -328,7 +332,7 @@ class OviFusionEngine:
                 sample_scheduler,
                 device=device,
                 sigmas=sampling_sigmas)
-            
+
         elif solver_name == 'euler':
             sample_scheduler = FlowMatchEulerDiscreteScheduler(
                 shift=shift
@@ -338,8 +342,8 @@ class OviFusionEngine:
                 sampling_steps,
                 device=device,
             )
-        
+
         else:
             raise NotImplementedError("Unsupported solver.")
-        
+
         return sample_scheduler, timesteps
