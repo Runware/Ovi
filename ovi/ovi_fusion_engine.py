@@ -1,3 +1,4 @@
+from pathlib import Path
 import torch
 import logging
 from tqdm import tqdm
@@ -14,8 +15,8 @@ from omegaconf import OmegaConf
 from ovi.utils.processing_utils import preprocess_image_tensor, snap_hw_to_multiple_of_32
 
 
-DEFAULT_CONFIG = OmegaConf.load('ovi/configs/inference/inference_fusion.yaml')
-
+config_path = Path(__file__).parent / 'configs/inference/inference_fusion.yaml'
+DEFAULT_CONFIG = OmegaConf.load(config_path)
 
 class OviFusionEngine:
     def __init__(
@@ -106,7 +107,6 @@ class OviFusionEngine:
         is_i2v = not is_t2v
 
         first_frame = None
-        image = None
         if is_i2v:
             # Load first frame from path
             first_frame = preprocess_image_tensor(image, self.device, self.target_dtype)

@@ -1051,8 +1051,10 @@ class Wan2_2_VAE:
             if not isinstance(zs, torch.Tensor):
                 raise TypeError("zs should be a torch.Tensor")
             with amp.autocast('cuda', dtype=self.dtype):
-                return self.model.decode(zs, self.scale).float().clamp_(-1,
-                                                                 1)
+                decoded = self.model.decode(zs, self.scale)
+                if hasattr(decoded, "sample"):
+                    decoded = decoded.sample
+                return decoded.float().clamp_(-1, 1)
 
         except TypeError as e:
             logging.info(e)
@@ -1063,8 +1065,11 @@ class Wan2_2_VAE:
             if not isinstance(video, torch.Tensor):
                 raise TypeError("video should be a torch.Tensor")
             with amp.autocast('cuda', dtype=self.dtype):
-                
-                return self.model.encode(video, self.scale).float()
+
+                res = self.model.encode(video, self.scale)
+                if hasattr(res, "latent_dist"):
+                    return res.latent_dist.mode().float()
+                return res.float()
 
         except TypeError as e:
             logging.info(e)

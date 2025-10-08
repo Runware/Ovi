@@ -291,9 +291,7 @@ class FusionModel(nn.Module):
                 continue
             vid_block = self.video_model.blocks[i]
             audio_block = self.audio_model.blocks[i]
-            vid, audio = gradient_checkpointing(
-                    enabled=(self.training and self.gradient_checkpointing),
-                    module=self.single_fusion_block_forward,
+            vid, audio = self.single_fusion_block_forward(
                     vid_block=vid_block,
                     audio_block=audio_block,
                     vid=vid,
