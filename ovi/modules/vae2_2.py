@@ -896,12 +896,7 @@ class Wan2_2_VAE:
 
     def __init__(
         self,
-        vae_cls: type[nn.Module] = WanVAE_,
-        z_dim=48,
-        c_dim=160,
-        vae_pth=None,
-        dim_mult=[1, 2, 4, 4],
-        temperal_downsample=[False, True, True],
+        vae_model: type[nn.Module | WanVAE_],
         dtype=torch.float,
         device="cuda",
     ):
@@ -1020,15 +1015,7 @@ class Wan2_2_VAE:
         self.scale = [mean, 1.0 / std]
 
         # init model
-        self.model = (
-            _video_vae(
-                vae_cls=vae_cls,
-                pretrained_path=vae_pth,
-                z_dim=z_dim,
-                dim=c_dim,
-                dim_mult=dim_mult,
-                temperal_downsample=temperal_downsample,
-            ).eval().requires_grad_(False).to(device))
+        self.model = vae_model
 
     def encode(self, videos):
         try:

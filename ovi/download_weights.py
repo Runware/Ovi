@@ -1,5 +1,4 @@
-import os
-import argparse
+import dataclasses
 import logging
 import pathlib
 import time
@@ -10,6 +9,13 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
+
+
+@dataclasses.dataclass
+class DownloadedWeights:
+    backbone_snapshot: str
+    audio_vae_snapshot: str
+
 
 def timed_download(repo_id: str, local_dir: str, allow_patterns: list):
     """Download files from HF repo and log time + destination."""

@@ -66,7 +66,8 @@ class OviFusionEngine:
                     audio_guidance_scale=4.0,
                     slg_layer=9,
                     video_negative_prompt="",
-                    audio_negative_prompt=""
+                    audio_negative_prompt="",
+                    **_
                 ):
 
         params = {
