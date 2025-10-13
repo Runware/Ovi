@@ -165,38 +165,57 @@ class OviFusionEngine:
                 if is_i2v:
                     video_noise[:, :1] = latents_images
 
-                # Positive (conditional) forward pass
-                pos_forward_args = {
-                    'audio_context': [text_embeddings_audio_pos],
-                    'vid_context': [text_embeddings_video_pos],
-                    'vid_seq_len': max_seq_len_video,
-                    'audio_seq_len': max_seq_len_audio,
-                    'first_frame_is_clean': is_i2v
-                }
+                if False :
+                    forward_args = {
+                        'audio_context': [text_embeddings_audio_neg, text_embeddings_audio_pos],
+                        'vid_context': [text_embeddings_video_neg, text_embeddings_video_pos],
+                        'vid_seq_len': max_seq_len_video,
+                        'audio_seq_len': max_seq_len_audio,
+                        'first_frame_is_clean': is_i2v
+                    }
 
-                pred_vid_pos, pred_audio_pos = self.model(
-                    vid=[video_noise],
-                    audio=[audio_noise],
-                    t=timestep_input,
-                    **pos_forward_args
-                )
-                
-                # Negative (unconditional) forward pass  
-                neg_forward_args = {
-                    'audio_context': [text_embeddings_audio_neg],
-                    'vid_context': [text_embeddings_video_neg],
-                    'vid_seq_len': max_seq_len_video,
-                    'audio_seq_len': max_seq_len_audio,
-                    'first_frame_is_clean': is_i2v,
-                    'slg_layer': slg_layer
-                }
-                
-                pred_vid_neg, pred_audio_neg = self.model(
-                    vid=[video_noise],
-                    audio=[audio_noise],
-                    t=timestep_input,
-                    **neg_forward_args
-                )
+                    pred_vid, pred_audio = self.model(
+                        vid=[video_noise, video_noise],
+                        audio=[audio_noise, audio_noise],
+                        t=torch.cat([timestep_input, timestep_input]),
+                        **forward_args
+                    )
+
+                    pred_vid_neg, pred_vid_pos = pred_vid
+                    pred_audio_neg, pred_audio_pos = pred_audio
+                else: 
+                    # Positive (conditional) forward pass
+                    pos_forward_args = {
+                        'audio_context': [text_embeddings_audio_pos],
+                        'vid_context': [text_embeddings_video_pos],
+                        'vid_seq_len': max_seq_len_video,
+                        'audio_seq_len': max_seq_len_audio,
+                        'first_frame_is_clean': is_i2v
+                    }
+
+                    pred_vid_pos, pred_audio_pos = self.model(
+                        vid=[video_noise],
+                        audio=[audio_noise],
+                        t=timestep_input,
+                        **pos_forward_args
+                    )
+                    
+                    # Negative (unconditional) forward pass  
+                    neg_forward_args = {
+                        'audio_context': [text_embeddings_audio_neg],
+                        'vid_context': [text_embeddings_video_neg],
+                        'vid_seq_len': max_seq_len_video,
+                        'audio_seq_len': max_seq_len_audio,
+                        'first_frame_is_clean': is_i2v,
+                        'slg_layer': slg_layer
+                    }
+                    
+                    pred_vid_neg, pred_audio_neg = self.model(
+                        vid=[video_noise],
+                        audio=[audio_noise],
+                        t=timestep_input,
+                        **neg_forward_args
+                    )
 
                 # Apply classifier-free guidance
                 pred_video_guided = pred_vid_neg[0] + video_guidance_scale * (pred_vid_pos[0] - pred_vid_neg[0])
