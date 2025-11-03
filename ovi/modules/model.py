@@ -689,6 +689,7 @@ class WanModel(ModelMixin, ConfigMixin):
     def set_gradient_checkpointing(self, enable: bool):
         self.gradient_checkpointing = enable
 
+    @torch.compiler.disable
     def prepare_transformer_block_kwargs(
         self,
         x,
@@ -802,7 +803,8 @@ class WanModel(ModelMixin, ConfigMixin):
             context_lens=context_lens)
 
         return x, e, kwargs
-        
+
+    @torch.compiler.disable
     def post_transformer_block_out(self, x, grid_sizes, e):
         # head
         x = self.head(x, e)
