@@ -477,12 +477,12 @@ class T5EncoderModel:
         umt_encoder,
         tokenizer: Callable,
         dtype=torch.bfloat16,
-        device=torch.cuda.current_device(),
+        device=None,
         shard_fn=None,
         cpu_offload=False,
     ):
         self.dtype = dtype
-        self.device = device
+        self.device = device or torch.cuda.current_device()
         self.model = umt_encoder
         if shard_fn is not None:
             self.model = shard_fn(self.model, sync_module_states=False)
