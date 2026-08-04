@@ -475,7 +475,7 @@ class T5EncoderModel:
         self,
         text_len,
         dtype=torch.bfloat16,
-        device=torch.cuda.current_device(),
+        device=None,
         checkpoint_path=None,
         tokenizer_path=None,
         shard_fn=None,
@@ -483,7 +483,7 @@ class T5EncoderModel:
     ):
         self.text_len = text_len
         self.dtype = dtype
-        self.device = device
+        self.device = device or torch.cuda.current_device()
         self.checkpoint_path = checkpoint_path
         self.tokenizer_path = tokenizer_path
 
@@ -492,7 +492,7 @@ class T5EncoderModel:
             encoder_only=True,
             return_tokenizer=False,
             dtype=dtype,
-            device=device if not cpu_offload else "cpu").eval().requires_grad_(False)
+            device=self.device if not cpu_offload else "cpu").eval().requires_grad_(False)
         logging.info(f'loading {checkpoint_path}')
         model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
         self.model = model
